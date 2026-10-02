@@ -1,0 +1,50 @@
+<!--
+  Packs lintent as a .NET 10 RID-specific tool: the binary itself is the
+  tool's entry point (Runner="executable"), with no .NET launcher.
+
+    dotnet pack lintent.pack.csproj -p:Version=<v>                          the pointer package `lintent`
+    dotnet pack lintent.pack.csproj -p:Version=<v> -p:ToolRid=<rid> -p:Binary=<path>
+                                                                            `lintent.<rid>`, holding that binary
+
+  packaging/nuget/pack.sh runs all six from the release binaries.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!-- NU5100: the binary is not a .NET assembly. NU5128: no lib/ folder, by design. -->
+    <NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
+    <Authors>pietervp</Authors>
+    <Description>Plain-language lint rules judged by a model (Jev, by TypeSafe), scoped with tree-sitter</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/pietervp/lintent</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/pietervp/lintent</RepositoryUrl>
+    <PackageTags>lint;linter;tree-sitter;llm;code-review</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageId Condition="'$(ToolRid)' == ''">lintent</PackageId>
+    <PackageId Condition="'$(ToolRid)' != ''">lintent.$(ToolRid)</PackageId>
+    <PackageType Condition="'$(ToolRid)' == ''">DotnetTool</PackageType>
+    <PackageType Condition="'$(ToolRid)' != ''">DotnetToolRidPackage</PackageType>
+    <ExeSuffix Condition="$(ToolRid.StartsWith('win'))">.exe</ExeSuffix>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ToolRid)' == ''">
+    <None Include="DotnetToolSettings.xml" Pack="true" PackagePath="tools/net10.0/any/" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ToolRid)' != ''">
+    <None Include="$(IntermediateOutputPath)$(ToolRid)/DotnetToolSettings.xml" Pack="true" PackagePath="tools/net10.0/$(ToolRid)/" />
+    <None Include="$(Binary)" Pack="true" PackagePath="tools/net10.0/$(ToolRid)/" />
+  </ItemGroup>
+  <Target Name="WriteRidToolSettings" BeforeTargets="GenerateNuspec" Condition="'$(ToolRid)' != ''">
+    <Error Condition="'$(Binary)' == '' Or !Exists('$(Binary)')" Text="Pass -p:Binary=&lt;path to the $(ToolRid) lintent binary&gt;" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)$(ToolRid)/DotnetToolSettings.xml"
+      Overwrite="true"
+      Lines="&lt;DotNetCliTool Version=&quot;2&quot;&gt;&lt;Commands&gt;&lt;Command Name=&quot;lintent&quot; EntryPoint=&quot;lintent$(ExeSuffix)&quot; Runner=&quot;executable&quot; /&gt;&lt;/Commands&gt;&lt;/DotNetCliTool&gt;" />
+  </Target>
+</Project>

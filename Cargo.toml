@@ -5,7 +5,12 @@ edition = "2021"
 description = "Plain-language lint rules judged by a model (Jev, by TypeSafe), scoped with tree-sitter"
 license = "MIT"
 repository = "https://github.com/pietervp/lintent"
-publish = false
+homepage = "https://github.com/pietervp/lintent"
+readme = "README.md"
+keywords = ["lint", "linter", "tree-sitter", "llm", "code-review"]
+categories = ["development-tools", "command-line-utilities"]
+# What crates.io gets: the build inputs only.
+include = ["/src/**", "/queries/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [[bin]]
 name = "lintent"
@@ -43,6 +48,15 @@ tree-sitter-rust = "0.24"
 tree-sitter-scala = "0.24"
 tree-sitter-swift = "0.7"
 tree-sitter-typescript = "0.23"
+
+# `cargo binstall lintent` downloads the release archive instead of building.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/lintent-{ target }{ archive-suffix }"
+bin-dir = "lintent-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [dev-dependencies]
 tempfile = "3"

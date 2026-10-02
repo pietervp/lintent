@@ -145,3 +145,117 @@ jobs:
             echo "$name@$version is served"
           done
           publish npm-dist/cli/
+
+  nuget:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # nuget.org trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: artifacts
+          merge-multiple: true
+      - run: packaging/nuget/pack.sh artifacts nupkg
+      - name: smoke test the linux-x64 tool
+        run: |
+          set -euo pipefail
+          mkdir smoke && cd smoke
+          cat > nuget.config <<XML
+          <configuration><packageSources><clear /><add key="local" value="$GITHUB_WORKSPACE/nupkg" /></packageSources></configuration>
+          XML
+          dotnet new tool-manifest
+          dotnet tool install lintent
+          dotnet lintent --version
+      - name: log in to nuget.org
+        if: github.ref_type == 'tag'
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: publish
+        if: github.ref_type == 'tag'
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          push() {
+            dotnet nuget push "$1" --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+          }
+          rids="osx-arm64 osx-x64 linux-arm64 linux-x64 win-x64"
+          for rid in $rids; do push "nupkg/lintent.$rid.$version.nupkg"; done
+          # Installs fail while the pointer package is live and a RID package
+          # is not, so `lintent` goes out once nuget.org serves all five.
+          for rid in $rids; do
+            for attempt in $(seq 1 120); do
+              curl -sf "https://api.nuget.org/v3-flatcontainer/lintent.$rid/index.json" | grep -q "\"$version\"" && break
+              [ "$attempt" = 120 ] && { echo "lintent.$rid $version is still not served after 30 minutes"; exit 1; }
+              sleep 15
+            done
+            echo "lintent.$rid $version is served"
+          done
+          push "nupkg/lintent.$version.nupkg"
+
+  crates:
+    # After the GitHub release, so `cargo binstall` finds its archives.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # crates.io trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: check whether this version is on crates.io
+        id: check
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if curl -sf -A "lintent release (github.com/pietervp/lintent)" \
+              "https://crates.io/api/v1/crates/lintent/$version" >/dev/null; then
+            echo "lintent $version is already on crates.io"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.check.outputs.published != 'true'
+        id: auth
+      - if: steps.check.outputs.published != 'true'
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: pietervp/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: write the formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern sha256sums.txt
+          mkdir -p tap/Formula
+          packaging/homebrew/formula.sh "${GITHUB_REF_NAME#v}" sha256sums.txt > tap/Formula/lintent.rb
+      - name: push it to the tap
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/lintent.rb
+          git diff --cached --quiet && { echo "the formula is unchanged"; exit 0; }
+          git commit -m "lintent ${GITHUB_REF_NAME#v}"
+          git push
