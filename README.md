@@ -65,15 +65,30 @@ branches with the key as a secret. Every run is capped by a
 
 ## Install
 
-In a JavaScript or TypeScript project, add lintent as a dev dependency, so
-the version is pinned in your lockfile like any other linter:
+Every channel installs the same prebuilt binary, for macOS (arm64, x64), Linux
+(arm64, x64, glibc) and Windows (x64). Pin it per project where the ecosystem
+allows, so everyone runs the same lintent:
 
-```bash
-npm install --save-dev @lintent/cli     # or pnpm add -D, yarn add -D, bun add -d
-```
+| Your project | Install | Run |
+|---|---|---|
+| JavaScript / TypeScript | `npm install --save-dev @lintent/cli` (or `pnpm add -D`, `yarn add -D`, `bun add -d`) | a `package.json` script, see below |
+| .NET (SDK 10+) | `dotnet new tool-manifest` once, then `dotnet tool install lintent` | `dotnet lintent check --changed` |
+| Rust | `cargo binstall lintent`, or `cargo install --locked lintent` to build it | `lintent check --changed` |
+| Anything, on a Mac or Linux machine | `brew install pietervp/tap/lintent` | `lintent check --changed` |
 
-Run it through your `package.json` scripts, which only ever use the
-project's own `node_modules/.bin`:
+Or download an archive from
+[GitHub Releases](https://github.com/pietervp/lintent/releases). The archives
+and the Homebrew formula also carry the [agent skill](skills/lintent/SKILL.md)
+(`$(brew --prefix)/share/lintent/skills/lintent` for Homebrew).
+
+The 18 built-in grammars are compiled into the binary. A C compiler (Xcode CLT
+on macOS, `build-essential` on Debian/Ubuntu) is needed only for
+[runtime grammars](#languages) added in `lintent.toml`, which lintent compiles
+on first use.
+
+### npm: run it through package scripts
+
+Scripts only ever use the project's own `node_modules/.bin`:
 
 ```json
 {
@@ -95,20 +110,16 @@ the npm package named `lintent` is an unrelated tool, and whenever
 run), npx downloads and runs that package instead. `npx --no` does not
 protect you either; it still runs a copy npx cached earlier.
 
-The package carries prebuilt binaries for macOS (arm64, x64), Linux (arm64,
-x64, glibc) and Windows (x64), and installs only the one for your machine.
-`LINTENT_BINARY=<path>` makes it run another build instead.
+`@lintent/cli` installs only the binary for your machine, from one
+`@lintent/cli-<platform>` optional dependency. `LINTENT_BINARY=<path>` makes it
+run another build instead.
 
-Anywhere else, download a binary from
-[GitHub Releases](https://github.com/pietervp/lintent/releases), or build it
-with a stable Rust toolchain:
+### From source
+
+With a stable Rust toolchain:
 
 ```bash
 cargo install --git https://github.com/pietervp/lintent
-
-# Or from a clone:
-git clone https://github.com/pietervp/lintent && cd lintent
-cargo install --path .
 ```
 
 ### Releasing
@@ -120,25 +131,40 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 [`release.yml`](.github/workflows/release.yml) builds the five binaries,
-attaches them to a GitHub release, and publishes `@lintent/cli` plus one
-`@lintent/cli-<platform>` package per binary
-([`npm/build.mjs`](npm/build.mjs) assembles them). Running the workflow by
-hand (Actions → release → Run workflow) builds and packs everything and
-publishes nothing.
+attaches them to a GitHub release, and publishes them everywhere:
 
-npm publishing uses
-[trusted publishing](https://docs.npmjs.com/trusted-publishers): npm accepts
-the workflow's GitHub OIDC token, so no npm token is stored anywhere. npm
-configures a trusted publisher per package, and only for a package that exists,
-so the setup is once per package: run [`npm/bootstrap.sh`](npm/bootstrap.sh)
-logged in as an `@lintent` owner to publish `0.0.0` placeholders, then on each
-package's npmjs.com settings page add a GitHub Actions trusted publisher
-(`pietervp` / `lintent` / `release.yml`) and disallow token publishing.
+| Channel | Packages | Assembled by | Credentials |
+|---|---|---|---|
+| npm | `@lintent/cli` and `@lintent/cli-<platform>` | [`npm/build.mjs`](npm/build.mjs) | trusted publishing |
+| NuGet | `lintent` (the tool) and `lintent.<rid>` | [`packaging/nuget/`](packaging/nuget/) | trusted publishing |
+| crates.io | `lintent` | `cargo publish` | trusted publishing |
+| Homebrew | `Formula/lintent.rb` in [pietervp/homebrew-tap](https://github.com/pietervp/homebrew-tap) | [`packaging/homebrew/formula.sh`](packaging/homebrew/formula.sh) | `HOMEBREW_TAP_TOKEN` secret |
 
-The 18 built-in grammars are compiled into the binary. A C compiler (Xcode CLT
-on macOS, `build-essential` on Debian/Ubuntu) is needed only for
-[runtime grammars](#languages) added in `lintent.toml`, which lintent compiles
-on first use.
+Each registry gets the platform packages first and the package that points at
+them last, once the registry serves all of them, so an install never resolves a
+pointer whose binary is still being validated. Running the workflow by hand
+(Actions → release → Run workflow) builds and packs everything, smoke-tests
+the npm and NuGet packages, and publishes nothing.
+
+Trusted publishing means the registry accepts the workflow's GitHub OIDC token,
+so no registry token is stored anywhere. Each is configured once:
+
+- **npm** configures a trusted publisher per package, and only for a package
+  that exists. Run [`npm/bootstrap.sh`](npm/bootstrap.sh) logged in as an
+  `@lintent` owner to publish `0.0.0` placeholders, then on each package's
+  npmjs.com settings page add a GitHub Actions trusted publisher (`pietervp` /
+  `lintent` / `release.yml`) and disallow token publishing.
+- **NuGet**: on nuget.org, under your profile's Trusted Publishing, add a
+  policy for repository `pietervp/lintent` and workflow `release.yml` that may
+  push new packages and versions for `lintent*`. Set the repository variable
+  `NUGET_USER` to your nuget.org profile name.
+- **crates.io** only accepts a trusted publisher for a crate that exists:
+  publish the first version by hand (`cargo login`, then `cargo publish`),
+  then add the trusted publisher (`pietervp` / `lintent` / `release.yml`) in
+  the crate's settings and revoke the token.
+- **Homebrew** is a git push to the tap repository: `HOMEBREW_TAP_TOKEN` is a
+  fine-grained token with Contents read and write on `pietervp/homebrew-tap`
+  only.
 
 ### API key
 

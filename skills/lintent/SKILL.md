@@ -50,16 +50,27 @@ unless the user explicitly asks for that spend.**
 ## 1. Setup
 
 ```bash
-lintent --version || echo "not installed"
+lintent --version || echo "not on PATH"
 ```
 
-If lintent is missing, tell the user how to install it. It needs a Rust
-toolchain; the repository is private, so cargo clones it with their git
-credentials:
+A project may pin lintent instead of putting it on PATH. Use the project's own
+copy when there is one, and run every command below through it:
+
+- `@lintent/cli` in `package.json`: `npm run lintent -- <args>` with a
+  `"lintent": "lintent"` script, or `pnpm exec lintent` / `yarn lintent`.
+  **Never `npx lintent`**: the npm package named `lintent` is an unrelated tool,
+  and npx runs it whenever `@lintent/cli` is not installed.
+- `lintent` in `dotnet-tools.json` or `.config/dotnet-tools.json`:
+  `dotnet tool restore` once, then `dotnet lintent <args>`.
+
+If lintent is missing, install it the way the project's ecosystem does,
+pinned per project where it can be:
 
 ```bash
-cargo install --git https://github.com/pietervp/lintent
-# or, from a clone: cargo install --path .
+npm install --save-dev @lintent/cli                        # JavaScript / TypeScript
+dotnet new tool-manifest && dotnet tool install lintent    # .NET (SDK 10+)
+cargo binstall lintent                                     # Rust (or cargo install --locked lintent)
+brew install pietervp/tap/lintent                          # anything else, macOS or Linux
 ```
 
 A C compiler is needed only for runtime grammars (§ 4). Then:
