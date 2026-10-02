@@ -105,8 +105,13 @@ jobs:
       - name: smoke test the linux-x64 package
         run: |
           set -euo pipefail
-          mkdir smoke && cd smoke && npm init -y >/dev/null
-          npm install ../npm-dist/cli-linux-x64-gnu ../npm-dist/cli
+          # Install packed tarballs, as the registry serves them: installing the
+          # directories would symlink them, and the launcher would then resolve
+          # the platform package from the wrong place.
+          mkdir tgz smoke
+          for dir in npm-dist/cli-linux-x64-gnu npm-dist/cli; do (cd "$dir" && npm pack --pack-destination ../../tgz); done
+          cd smoke && npm init -y >/dev/null
+          npm install ../tgz/*.tgz
           npx lintent --version
       - name: pack (dry run)
         if: github.ref_type != 'tag'
