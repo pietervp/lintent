@@ -193,10 +193,12 @@ jobs:
           rids="osx-arm64 osx-x64 linux-arm64 linux-x64 win-x64"
           for rid in $rids; do push "nupkg/lintent.$rid.$version.nupkg"; done
           # Installs fail while the pointer package is live and a RID package
-          # is not, so `lintent` goes out once nuget.org serves all five.
+          # is not, so `lintent` goes out once nuget.org serves all five. The
+          # registration is what `dotnet tool install` resolves versions from,
+          # and it lags the download feed by minutes.
           for rid in $rids; do
             for attempt in $(seq 1 120); do
-              curl -sf "https://api.nuget.org/v3-flatcontainer/lintent.$rid/index.json" | grep -q "\"$version\"" && break
+              curl -sf "https://api.nuget.org/v3/registration5-gz-semver2/lintent.$rid/$version.json" >/dev/null && break
               [ "$attempt" = 120 ] && { echo "lintent.$rid $version is still not served after 30 minutes"; exit 1; }
               sleep 15
             done
