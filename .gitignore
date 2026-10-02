@@ -1,0 +1,5 @@
+/target/
+.lintent/cache.json
+.env
+.env.*
+!.env.example

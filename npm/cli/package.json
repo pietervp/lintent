@@ -1,0 +1,12 @@
+{
+  "name": "@lintent/cli",
+  "version": "0.0.0",
+  "description": "Plain-language lint rules judged by a model (Jev, by TypeSafe), scoped with tree-sitter",
+  "license": "MIT",
+  "homepage": "https://github.com/pietervp/lintent#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/pietervp/lintent.git" },
+  "bin": { "lintent": "bin/lintent.js" },
+  "files": ["bin", "skills"],
+  "engines": { "node": ">=16" },
+  "optionalDependencies": {}
+}

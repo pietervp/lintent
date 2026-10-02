@@ -1,0 +1,52 @@
+[package]
+name = "lintent"
+version = "0.1.0"
+edition = "2021"
+description = "Plain-language lint rules judged by a model (Jev, by TypeSafe), scoped with tree-sitter"
+license = "MIT"
+repository = "https://github.com/pietervp/lintent"
+publish = false
+
+[[bin]]
+name = "lintent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+globset = "0.4"
+ignore = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+toml = "0.8"
+libloading = "0.8"
+tree-sitter = "0.25"
+tree-sitter-language = "0.1"
+ureq = "2"
+# Built-in grammars. Each one is compiled C, so this list is the main driver
+# of build time; anything else can be loaded at runtime (see `[languages]`).
+tree-sitter-bash = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-elixir = "0.3"
+tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-lua = "0.2"
+tree-sitter-php = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-scala = "0.24"
+tree-sitter-swift = "0.7"
+tree-sitter-typescript = "0.23"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+# Grammar tables dominate the binary; symbols add nothing for users.
+strip = true

@@ -1,0 +1,127 @@
+name: release
+
+# A tag `v<version>` (matching Cargo.toml) builds the binaries, attaches them
+# to a GitHub release and publishes the npm packages. Running the workflow by
+# hand builds and packs everything and publishes nothing: a dry run.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, runner: macos-14 }
+          - { target: x86_64-apple-darwin, runner: macos-14 }
+          # glibc, not musl: runtime grammars are loaded with dlopen, which a
+          # static musl binary cannot do. 22.04 keeps the glibc floor at 2.35.
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm }
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04 }
+          - { target: x86_64-pc-windows-msvc, runner: windows-latest, exe: .exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=lintent-${{ matrix.target }}
+          bin=target/${{ matrix.target }}/release/lintent${{ matrix.exe }}
+          mkdir -p dist/${{ matrix.target }} "staging/$name"
+          cp "$bin" dist/${{ matrix.target }}/
+          cp "$bin" README.md LICENSE "staging/$name/"
+          cp -R skills "staging/$name/"
+          if [ "${{ runner.os }}" = Windows ]; then
+            (cd staging && 7z a -tzip "../dist/$name.zip" "$name" >/dev/null)
+          else
+            tar -C staging -czf "dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: dist/
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: artifacts
+          merge-multiple: true
+      - name: check the tag names the crate version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd artifacts
+          sha256sum lintent-*.tar.gz lintent-*.zip > sha256sums.txt
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes \
+            lintent-*.tar.gz lintent-*.zip sha256sums.txt
+
+  npm:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Trusted publishing: npm accepts this workflow's OIDC token in place
+      # of a stored npm token, and adds provenance on its own.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: artifacts
+          merge-multiple: true
+      - run: node npm/build.mjs artifacts npm-dist
+      - name: smoke test the linux-x64 package
+        run: |
+          set -euo pipefail
+          mkdir smoke && cd smoke && npm init -y >/dev/null
+          npm install ../npm-dist/cli-linux-x64-gnu ../npm-dist/cli
+          npx lintent --version
+      - name: pack (dry run)
+        if: github.ref_type != 'tag'
+        run: for dir in npm-dist/*/; do (cd "$dir" && npm pack --dry-run); done
+      - name: publish
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          # Platform packages first, so @lintent/cli never points at a missing version.
+          for dir in npm-dist/cli-*/ npm-dist/cli/; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"
+              continue
+            fi
+            (cd "$dir" && npm publish --access public)
+          done
