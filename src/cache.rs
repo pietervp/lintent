@@ -4,8 +4,10 @@
 //! file does not invalidate the verdicts of the rules already there. A key
 //! covers everything that can change the answer: where the question goes
 //! (provider, base URL, model), how it is asked (`isolate_rules`, since a
-//! question asked next to others is a different request), the rule file's
-//! exact text, and the unit — including its path, which is sent as state.
+//! question asked next to others is a different request), the question as
+//! sent, and the unit — including its path, which is sent as state. Rule
+//! fields the model never sees (`why`, `fix`, `severity`, `min_confidence`,
+//! globs) are applied to cached answers, so editing them costs nothing.
 //!
 //! Several lintent runs may share one cache (parallel CI jobs, an agent and
 //! an editor). Saving therefore re-reads the file under a lock file and
@@ -26,7 +28,7 @@ use crate::jev::{Answer, Choice};
 use crate::rules::Rule;
 
 /// Bump when the request shape or its meaning changes.
-pub const CACHE_VERSION: &str = "lintent-cache-v2";
+pub const CACHE_VERSION: &str = "lintent-cache-v3";
 const PRUNE_AFTER_SECS: u64 = 30 * 24 * 3600;
 /// Re-stamping a read entry at most daily keeps cache-only runs from
 /// rewriting the file every time.
@@ -205,8 +207,8 @@ impl Drop for Lock {
 }
 
 /// sha256 over the scope (provider, base URL, model, `isolate_rules` — see
-/// `Config::cache_scope`), the rule file's exact text and everything about
-/// the unit that is sent. Parts are NUL-separated so no two different inputs
+/// `Config::cache_scope`), the rule's question as sent (keyed by its id) and
+/// everything about the unit that is sent. Parts are NUL-separated so no two different inputs
 /// concatenate to the same bytes.
 pub fn question_key(scope: &str, rule: &Rule, unit: &Unit) -> String {
     let mut hasher = Sha256::new();
@@ -214,10 +216,13 @@ pub fn question_key(scope: &str, rule: &Rule, unit: &Unit) -> String {
         Some(parent) => format!("some:{parent}"),
         None => "none".to_string(),
     };
-    let parts: [&str; 9] = [
+    let question = serde_json::to_string(&crate::jev::question(rule, unit))
+        .expect("questions always serialize");
+    let parts: [&str; 10] = [
         CACHE_VERSION,
         scope,
-        &rule.raw,
+        &rule.id,
+        &question,
         unit.kind.as_str(),
         &unit.name,
         &unit.language,
@@ -270,10 +275,27 @@ mod tests {
         let base = question_key("s", &rule, &unit());
         assert_eq!(base, question_key("s", &rule, &unit()));
         assert_ne!(base, question_key("other-scope", &rule, &unit()));
-        assert_ne!(
-            base,
-            question_key("s", &test_rule("demo", "why = \"x\""), &unit())
-        );
+        assert_ne!(base, question_key("s", &test_rule("other", ""), &unit()));
+        for sent in ["exceptions = [\"Zero is fine\"]", "allow_skip = false"] {
+            assert_ne!(
+                base,
+                question_key("s", &test_rule("demo", sent), &unit()),
+                "{sent} changes the question"
+            );
+        }
+        for unsent in [
+            "why = \"x\"",
+            "fix = \"y\"",
+            "severity = \"warning\"",
+            "min_confidence = 0.95",
+            "exclude = [\"**/*.test.ts\"]",
+        ] {
+            assert_eq!(
+                base,
+                question_key("s", &test_rule("demo", unsent), &unit()),
+                "{unsent} is not sent, so cached answers stay valid"
+            );
+        }
         let mut changed = unit();
         changed.source.push(' ');
         assert_ne!(base, question_key("s", &rule, &changed));

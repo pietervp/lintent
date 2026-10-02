@@ -29,6 +29,9 @@ pub struct Finding {
     pub severity: Severity,
     pub status: Status,
     pub confidence: Option<f64>,
+    /// The rule's threshold in effect: its own `min_confidence`, else the
+    /// project's. `None` for keep-mark problems.
+    pub min_confidence: Option<f64>,
     /// `probabilities.fail`, when the model reported a distribution.
     pub p_fail: Option<f64>,
     pub why: Option<String>,
@@ -38,8 +41,10 @@ pub struct Finding {
 }
 
 impl Finding {
-    pub fn blocks(&self) -> bool {
-        self.status == Status::Fail && self.severity == Severity::Error
+    /// A confident fail blocks when its severity is at least `fail_on`.
+    pub fn blocks(&self, fail_on: Severity) -> bool {
+        self.status == Status::Fail
+            && (self.severity == Severity::Error || fail_on == Severity::Warning)
     }
 }
 
@@ -73,14 +78,17 @@ pub struct Report {
     pub stats: Stats,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget: Option<Estimate>,
+    /// The lowest severity whose confident fails set exit 1 (`--fail-on`).
+    #[serde(skip)]
+    pub fail_on: Severity,
 }
 
 impl Report {
     /// Precedence, highest first:
     /// 3 over budget (nothing was sent, so there is no verdict at all);
     /// 2 the run is incomplete (any error) — a partial result must not read
-    /// as clean; 1 an error-severity rule confidently failed or a keep mark
-    /// is invalid; 0 clean. `--dry-run` uses the same codes.
+    /// as clean; 1 a confident fail at or above `fail_on` (by default only
+    /// error severity, which includes invalid keep marks); 0 clean. `--dry-run` uses the same codes.
     pub fn exit_code(&self) -> i32 {
         if self
             .budget
@@ -90,7 +98,11 @@ impl Report {
             3
         } else if !self.errors.is_empty() {
             2
-        } else if self.findings.iter().any(Finding::blocks) {
+        } else if self
+            .findings
+            .iter()
+            .any(|finding| finding.blocks(self.fail_on))
+        {
             1
         } else {
             0
@@ -201,10 +213,13 @@ fn write_finding(out: &mut String, finding: &Finding) {
         (Some(kind), Some(name)) => format!("{kind} {name}"),
         _ => "keep mark".to_string(),
     };
-    let confidence = finding
-        .confidence
-        .map(|c| format!("  (confidence {c:.2})"))
-        .unwrap_or_default();
+    let confidence = match (finding.confidence, finding.min_confidence) {
+        (Some(c), Some(min)) if finding.status == Status::Uncertain => {
+            format!("  (confidence {c:.2} < {min:.2})")
+        }
+        (Some(c), _) => format!("  (confidence {c:.2})"),
+        _ => String::new(),
+    };
     let _ = writeln!(
         out,
         "{}:{}  {}  {}  {}{}",
@@ -236,6 +251,7 @@ mod tests {
             severity,
             status,
             confidence: Some(0.93),
+            min_confidence: Some(0.8),
             p_fail: None,
             why: Some("ADR-1".into()),
             fix: Some("Do X.".into()),
@@ -254,6 +270,13 @@ mod tests {
             .findings
             .push(finding(Status::Fail, Severity::Warning));
         assert_eq!(report.exit_code(), 0);
+        report.fail_on = Severity::Warning;
+        assert_eq!(
+            report.exit_code(),
+            1,
+            "--fail-on warning blocks on warnings"
+        );
+        report.fail_on = Severity::Error;
         report.findings.push(finding(Status::Fail, Severity::Error));
         assert_eq!(report.exit_code(), 1);
         report.errors.push(ErrorEntry {
@@ -276,14 +299,18 @@ mod tests {
     fn human_output_lists_why_fix_and_uncertain_separately() {
         let mut report = Report::default();
         report.findings.push(finding(Status::Fail, Severity::Error));
-        report
-            .findings
-            .push(finding(Status::Uncertain, Severity::Error));
+        let mut doubtful = finding(Status::Uncertain, Severity::Error);
+        doubtful.confidence = Some(0.62);
+        report.findings.push(doubtful);
         report.stats.cost = 0.000123;
         report.stats.requests = 1;
         let text = report.to_human();
         assert!(text.starts_with("src/a.ts:3  error  demo  method Foo.bar  (confidence 0.93)\n    why: ADR-1\n    fix: Do X.\n"));
         assert!(text.contains("Uncertain (below min_confidence"));
+        assert!(
+            text.contains("demo  method Foo.bar  (confidence 0.62 < 0.80)\n"),
+            "an uncertain finding shows the threshold it missed"
+        );
         let summary = report.summary();
         assert!(summary.contains("1 error(s), 0 warning(s), 1 uncertain"));
         assert!(summary.contains("cost $0.000123"));
@@ -305,6 +332,7 @@ mod tests {
             "severity",
             "status",
             "confidence",
+            "min_confidence",
             "p_fail",
             "why",
             "fix",

@@ -221,7 +221,7 @@ isolate_rules = false
 exclude = ["**/node_modules/**", "**/dist/**", "**/target/**", "**/*.gen.ts", "**/*.min.js", "**/*.min.css", ".lintent/fixtures/**"]
 
 [budget]
-max_cost_usd = 0.0001              # USD per run (0.01 US cent); `--max-cost` overrides
+max_cost_usd = 0.001               # USD per run (0.1 US cent); `--max-cost` overrides
 input_price_per_million = 0.042    # USD per million input tokens, for typesafe/jev-1.13
 output_price_per_million = 0.0     # USD per million output tokens
 request_overhead_tokens = 300      # provider prompt added to every request
@@ -275,11 +275,11 @@ exceptions = ["Health-check handlers that return a constant status without calli
 | `include` | yes | Globs relative to the project root. `*` stays within one directory and `**` crosses directories. There is no default, because a rule with no reach is a mistake |
 | `why` | — | The doc, ADR, incident or review thread behind the rule, printed with every finding |
 | `fix` | — | What to do instead, printed as the hint |
-| `severity` | — | `error` (default; blocks with exit 1) or `warning` |
+| `severity` | — | `error` (default; blocks with exit 1) or `warning` (blocks only with `check --fail-on warning`) |
 | `languages` | — | Names from `lintent languages`. Default: every language |
 | `exclude` | — | Globs carved out of `include` |
 | `exceptions` | — | Named cases the model must treat as passing. Each deserves a pass fixture |
-| `min_confidence` | — | Per-rule override of the project value |
+| `min_confidence` | — | Per-rule override of the project value. `lintent rules` shows the value in effect. Changing it re-uses cached answers |
 | `allow_skip` | — | Default `true`: the model may answer `skip` when the rule's subject is absent from the scope |
 
 The model sees a scope's source and, for a method, its enclosing class as
@@ -326,8 +326,8 @@ over-budget run through. Per request it assumes:
 - both priced with `[budget]`'s per-million prices.
 
 Only questions that would actually be sent are counted; cached and kept
-questions cost $0. When the estimate is over `max_cost_usd` (default $0.0001,
-0.01 US cent), **nothing is sent** and lintent exits **3**. It then prints
+questions cost $0. When the estimate is over `max_cost_usd` (default $0.001,
+0.1 US cent), **nothing is sent** and lintent exits **3**. It then prints
 guidance addressed to the agent or human running it:
 
 - the costliest rules, files and directories, with their shares;
@@ -341,7 +341,7 @@ same codes. `--max-cost <USD>` overrides the budget for one run.
 
 The default is small on purpose. In a live run, one small scope judged against
 one rule cost roughly 900–1,200 input tokens, about $0.00004 at $0.042 per
-million. So a default run covers two or three uncached small scopes. A rule's
+million. So a default run covers roughly 20–25 uncached small scopes. A rule's
 full reach is covered over many runs (`--changed`, explicit PATHS), and the
 cache keeps every answer. Raising the budget is a decision about spend, made by
 a person, not a way to get past exit 3.
@@ -422,9 +422,12 @@ reverse.
 ## Cache
 
 Every verdict is cached in `.lintent/cache.json`. The cache key is a hash of
-the model, the **whole rule file** and the scope (its text and path). Unchanged
-code under an unchanged rule is never asked twice. Any edit to a rule, even to
-its `why`, re-judges everything the rule reaches. Several runs can share the
+the model, the **question as sent** (the rule's id, `description`, `exceptions`
+and `allow_skip`) and the scope (its text and path). Unchanged code under an
+unchanged question is never asked twice. Rewording a rule re-judges everything
+it reaches. Fields the model never sees (`why`, `fix`, `severity`,
+`min_confidence`, `include`, `exclude`) are applied to the cached answers, so
+tuning them costs nothing. Several runs can share the
 cache: saving merges under a lock instead of overwriting, and entries unused
 for 30 days are pruned. `--no-cache` neither reads nor writes the cache.
 `--refresh` (on `check`) asks again and overwrites the cached verdicts.
@@ -457,10 +460,10 @@ legitimate neighbour.
 |---|---|
 | `lintent init` | Writes `lintent.toml` and `.lintent/rules/`, and adds `.lintent/cache.json` to an existing `.gitignore`. Idempotent; never overwrites |
 | `lintent rule new <id> [--scopes class,method,function] [--include <glob>]…` | Scaffolds `.lintent/rules/<id>.toml` and empty fixture directories. `--scopes` defaults to `function,method`; the template's severity is `error` |
-| `lintent rules [--json]` | Lists the rules: id, severity, scopes, include |
+| `lintent rules [--json]` | Lists the rules: id, severity, `min_confidence` in effect, scopes, include |
 | `lintent scopes [PATHS…] [--rule <id>] [--verbose]` | Prints the scopes `check` would look at (`path:line  kind  name`) and a count. With `--rule`, prints only the scopes that rule reaches; `--verbose` adds files no language handles. No API call |
 | `lintent languages [--json]` | Lists the languages and how each one finds its scopes |
-| `lintent check [PATHS…] [--rule <id>]… [--changed [--base <ref>]] [--json] [--dry-run] [--no-cache] [--refresh] [--max-cost <USD>]` | Judges the scopes. `PATHS` default to the project root (the directory holding `lintent.toml`) |
+| `lintent check [PATHS…] [--rule <id>]… [--changed [--base <ref>]] [--json] [--dry-run] [--no-cache] [--refresh] [--max-cost <USD>] [--fail-on error\|warning]` | Judges the scopes. `--fail-on warning` makes confident warnings exit 1 too. `PATHS` default to the project root (the directory holding `lintent.toml`) |
 | `lintent eval [--rule <id>]… [--dry-run] [--no-cache] [--max-cost <USD>]` | Runs the fixtures and prints a table |
 
 Global options:
@@ -489,7 +492,7 @@ files.
 
 `--json` prints `{findings, errors, stats}`. Each finding carries `path`,
 `line`, `end_line`, `kind`, `name`, `rule`, `severity`, `status`, `confidence`,
-`p_fail`, `why` and `fix`, plus `message` for keep-mark problems. The stats
+`min_confidence` (the threshold it was held to), `p_fail`, `why` and `fix`, plus `message` for keep-mark problems. The stats
 include questions, cache hits, requests, tokens and cost.
 
 When several exit conditions apply, the highest code wins. `--dry-run` exits
@@ -497,8 +500,8 @@ with the same codes.
 
 | Exit | Meaning |
 |---|---|
-| 0 | Clean. Warnings and uncertain fails do not block |
-| 1 | A confident fail of an `error` rule or an invalid keep mark; for `eval`, a misjudged or vacuous fixture or an unproven rule |
+| 0 | Clean. Warnings (unless `--fail-on warning`) and uncertain fails do not block |
+| 1 | A confident fail of an `error` rule (or of a `warning` rule, with `--fail-on warning`) or an invalid keep mark; for `eval`, a misjudged or vacuous fixture or an unproven rule |
 | 2 | Usage, config or API error. The run is incomplete |
 | 3 | Over budget. Nothing was sent; the printed guidance says how to narrow the run |
 

@@ -72,18 +72,7 @@ pub struct Criteria {
 pub fn build_request(model: &str, session_id: &str, unit: &Unit, rules: &[&Rule]) -> Request {
     let questions = rules
         .iter()
-        .map(|rule| {
-            let question = Question {
-                kind: "choice",
-                instructions: instructions(rule, unit),
-                criteria: Criteria {
-                    pass: CRITERION_PASS,
-                    fail: CRITERION_FAIL,
-                    skip: rule.allow_skip.then_some(CRITERION_SKIP),
-                },
-            };
-            (rule.id.clone(), question)
-        })
+        .map(|rule| (rule.id.clone(), question(rule, unit)))
         .collect();
     Request {
         model: model.to_string(),
@@ -97,6 +86,19 @@ pub fn build_request(model: &str, session_id: &str, unit: &Unit, rules: &[&Rule]
             parent_source: unit.parent_source.clone(),
         },
         questions,
+    }
+}
+
+/// One rule's question about one unit, exactly as it is sent.
+pub fn question(rule: &Rule, unit: &Unit) -> Question {
+    Question {
+        kind: "choice",
+        instructions: instructions(rule, unit),
+        criteria: Criteria {
+            pass: CRITERION_PASS,
+            fail: CRITERION_FAIL,
+            skip: rule.allow_skip.then_some(CRITERION_SKIP),
+        },
     }
 }
 

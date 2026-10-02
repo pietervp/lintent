@@ -72,17 +72,14 @@ pub struct Rule {
     pub exceptions: Vec<String>,
     pub min_confidence: Option<f64>,
     pub allow_skip: bool,
-    /// The file's exact text: part of the cache key, so any edit to a rule
-    /// (even to `why`) invalidates its cached verdicts.
-    pub raw: String,
     include_set: GlobSet,
     exclude_set: GlobSet,
 }
 
 impl Rule {
     /// Parses one rule file. `stem` is the file name without `.toml`.
-    pub fn parse(stem: &str, raw: String, languages: &[&str]) -> Result<Rule> {
-        let file: RuleFile = toml::from_str(&raw)?;
+    pub fn parse(stem: &str, raw: &str, languages: &[&str]) -> Result<Rule> {
+        let file: RuleFile = toml::from_str(raw)?;
         if file.id != stem {
             bail!("id {:?} must equal the file name {stem:?}", file.id);
         }
@@ -132,7 +129,6 @@ impl Rule {
             exceptions: file.exceptions,
             min_confidence: file.min_confidence,
             allow_skip: file.allow_skip,
-            raw,
         })
     }
 
@@ -178,7 +174,7 @@ pub fn load_rules(dir: &Path, registry: &Registry) -> Result<Vec<Rule>> {
             .to_string();
         let raw =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let rule = Rule::parse(&stem, raw, &languages)
+        let rule = Rule::parse(&stem, &raw, &languages)
             .with_context(|| format!("invalid rule {}", path.display()))?;
         rules.push(rule);
     }
@@ -210,11 +206,15 @@ pub fn build_globset(patterns: &[String]) -> Result<GlobSet> {
 }
 
 #[cfg(test)]
-pub(crate) fn test_rule(id: &str, extra: &str) -> Rule {
-    let raw = format!(
+pub(crate) fn test_rule_text(id: &str, extra: &str) -> String {
+    format!(
         "id = \"{id}\"\ndescription = \"Rule {id}.\"\nscopes = [\"function\", \"method\"]\ninclude = [\"src/**\"]\n{extra}"
-    );
-    Rule::parse(id, raw, &Registry::builtin().names()).unwrap()
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn test_rule(id: &str, extra: &str) -> Rule {
+    Rule::parse(id, &test_rule_text(id, extra), &Registry::builtin().names()).unwrap()
 }
 
 #[cfg(test)]
@@ -241,7 +241,7 @@ exceptions = ["Health checks may ping the DB."]
 min_confidence = 0.9
 allow_skip = false
 "#;
-        let rule = Rule::parse("no-db-in-routes", raw.to_string(), &languages()).unwrap();
+        let rule = Rule::parse("no-db-in-routes", raw, &languages()).unwrap();
         assert_eq!(rule.severity, Severity::Warning);
         assert_eq!(rule.threshold(0.5), 0.9);
         assert!(!rule.allow_skip);
@@ -276,7 +276,7 @@ allow_skip = false
         let base = |body: &str| {
             format!("description = \"d\"\nscopes = [\"function\"]\ninclude = [\"**\"]\n{body}")
         };
-        let parse = |stem: &str, body: &str| Rule::parse(stem, base(body), &languages());
+        let parse = |stem: &str, body: &str| Rule::parse(stem, &base(body), &languages());
         assert!(parse("a", "id = \"b\"").is_err(), "id must match file name");
         assert!(parse("Bad_Id", "id = \"Bad_Id\"").is_err());
         assert!(parse("a", "id = \"a\"\nlanguages = [\"cobol\"]").is_err());
@@ -285,13 +285,13 @@ allow_skip = false
         assert!(parse("a", "id = \"a\"\nexceptons = []").is_err());
         assert!(Rule::parse(
             "a",
-            "id = \"a\"\ndescription = \"d\"\nscopes = [\"function\"]\ninclude = []".into(),
+            "id = \"a\"\ndescription = \"d\"\nscopes = [\"function\"]\ninclude = []",
             &languages()
         )
         .is_err());
         assert!(Rule::parse(
             "a",
-            "id = \"a\"\ndescription = \"d\"\nscopes = [\"block\"]\ninclude = [\"**\"]".into(),
+            "id = \"a\"\ndescription = \"d\"\nscopes = [\"block\"]\ninclude = [\"**\"]",
             &languages()
         )
         .is_err());
@@ -316,7 +316,11 @@ allow_skip = false
             .unwrap()
             .is_empty());
         for id in ["zeta", "alpha"] {
-            fs::write(dir.path().join(format!("{id}.toml")), test_rule(id, "").raw).unwrap();
+            fs::write(
+                dir.path().join(format!("{id}.toml")),
+                test_rule_text(id, ""),
+            )
+            .unwrap();
         }
         fs::write(dir.path().join("notes.md"), "ignored").unwrap();
         let ids: Vec<_> = load_rules(dir.path(), &registry)

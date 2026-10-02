@@ -178,7 +178,7 @@ struct ConfigFile {
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Budget {
-    /// 0.0001 USD = 0.01 US cent per run.
+    /// 0.001 USD = 0.1 US cent per run.
     pub max_cost_usd: f64,
     pub input_price_per_million: f64,
     pub output_price_per_million: f64,
@@ -192,7 +192,7 @@ pub struct Budget {
 impl Default for Budget {
     fn default() -> Self {
         Budget {
-            max_cost_usd: 0.0001,
+            max_cost_usd: 0.001,
             input_price_per_million: 0.042,
             output_price_per_million: 0.0,
             // Calibrated on typesafe/jev-1.13 (2026-10): a 509-byte request
@@ -374,7 +374,7 @@ exclude = [{exclude}]
 # Nothing is sent when a run's estimated cost exceeds max_cost_usd (exit code 3).
 # The prices are for typesafe/jev-1.13 — update them when you change `model`.
 [budget]
-max_cost_usd = 0.0001              # USD per run (0.01 US cent); `--max-cost` overrides
+max_cost_usd = 0.001               # USD per run (0.1 US cent); `--max-cost` overrides
 input_price_per_million = 0.042    # USD per million input tokens
 output_price_per_million = 0.0     # USD per million output tokens
 request_overhead_tokens = 300      # provider prompt added to every request

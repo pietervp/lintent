@@ -12,6 +12,7 @@ use crate::eval::{self, EvalOptions};
 use crate::extract::ScopeKind;
 use crate::inspect;
 use crate::languages::Registry;
+use crate::rules::Severity;
 use crate::scaffold;
 use crate::workspace::Workspace;
 
@@ -39,12 +40,12 @@ compiled and loaded with --trust-grammars or LINTENT_TRUST_GRAMMARS=1. The API k
 sent to the provider's own host unless LINTENT_BASE_URL is set in the environment.
 
 Budget: before anything is sent, the run's cost is estimated (input tokens ≈ request
-bytes / 3); over [budget] max_cost_usd (default $0.0001) nothing is sent and lintent
+bytes / 3); over [budget] max_cost_usd (default $0.001) nothing is sent and lintent
 explains how to narrow the run. `check --dry-run` applies the same check.
 
 Exit codes (highest wins): 3 over budget, nothing sent · 2 usage, config or API
-error (the run is incomplete) · 1 a confident error-severity fail or an invalid
-keep mark · 0 clean. --dry-run exits with the same codes.";
+error (the run is incomplete) · 1 a confident error-severity fail (or warning,
+with --fail-on warning) or an invalid keep mark · 0 clean. --dry-run exits with the same codes.";
 
 #[derive(Debug, Parser)]
 #[command(name = "lintent", version, about = ABOUT, long_about = LONG_ABOUT)]
@@ -71,7 +72,7 @@ enum Command {
         #[command(subcommand)]
         action: RuleCommand,
     },
-    /// List the rules (id, severity, scopes, include).
+    /// List the rules (id, severity, min_confidence in effect, scopes, include).
     Rules {
         /// Print JSON.
         #[arg(long)]
@@ -156,9 +157,12 @@ struct CheckArgs {
     /// Ask again for everything and overwrite the cached verdicts.
     #[arg(long)]
     refresh: bool,
-    /// Budget for this run in USD (default: [budget] max_cost_usd, 0.0001). Over it, nothing is sent (exit 3).
+    /// Budget for this run in USD (default: [budget] max_cost_usd, 0.001). Over it, nothing is sent (exit 3).
     #[arg(long, value_name = "USD", value_parser = parse_usd)]
     max_cost: Option<f64>,
+    /// Lowest severity whose confident fails set exit 1: error (default) or warning.
+    #[arg(long, value_name = "SEVERITY", value_parser = parse_severity, default_value = "error")]
+    fail_on: Severity,
 }
 
 #[derive(Debug, Args)]
@@ -175,6 +179,14 @@ struct EvalArgs {
     /// Budget for this run in USD (default: [budget] max_cost_usd). Over it, nothing is sent (exit 3).
     #[arg(long, value_name = "USD", value_parser = parse_usd)]
     max_cost: Option<f64>,
+}
+
+fn parse_severity(value: &str) -> Result<Severity, String> {
+    match value {
+        "error" => Ok(Severity::Error),
+        "warning" => Ok(Severity::Warning),
+        _ => Err(format!("{value:?} is not a severity; use error or warning")),
+    }
 }
 
 fn parse_usd(value: &str) -> Result<f64, String> {
@@ -270,6 +282,7 @@ fn run(cli: Cli) -> Result<u8> {
                 no_cache: args.no_cache,
                 refresh: args.refresh,
                 max_cost: args.max_cost,
+                fail_on: args.fail_on,
             };
             exit_byte(check::run(&workspace, &options)?)
         }
@@ -357,6 +370,16 @@ mod tests {
         };
         assert_eq!(args.max_cost, Some(0.002));
         assert!(Cli::try_parse_from(["lintent", "check", "--max-cost", "-1"]).is_err());
+        assert_eq!(args.fail_on, Severity::Error);
+        let Command::Check(args) =
+            Cli::try_parse_from(["lintent", "check", "--fail-on", "warning"])
+                .unwrap()
+                .command
+        else {
+            panic!("expected check");
+        };
+        assert_eq!(args.fail_on, Severity::Warning);
+        assert!(Cli::try_parse_from(["lintent", "check", "--fail-on", "info"]).is_err());
         assert!(Cli::try_parse_from(["lintent", "eval", "--max-cost", "lots"]).is_err());
     }
 

@@ -27,6 +27,8 @@ pub struct CheckOptions {
     pub refresh: bool,
     /// Overrides `[budget] max_cost_usd`.
     pub max_cost: Option<f64>,
+    /// The lowest severity whose confident fails set exit 1.
+    pub fail_on: Severity,
 }
 
 /// Units and the questions to ask about them, plus problems found on the way.
@@ -159,6 +161,7 @@ fn keep_finding(path: &str, line: usize, severity: Severity, message: String) ->
         severity,
         status: Status::Fail,
         confidence: None,
+        min_confidence: None,
         p_fail: None,
         why: None,
         fix: None,
@@ -207,6 +210,7 @@ pub fn run(workspace: &Workspace, options: &CheckOptions) -> Result<i32> {
         questions,
         mut report,
     } = collect(workspace, &rules, options)?;
+    report.fail_on = options.fail_on;
 
     let mut cache = if options.no_cache {
         Cache::disabled()
@@ -294,10 +298,9 @@ pub fn run(workspace: &Workspace, options: &CheckOptions) -> Result<i32> {
         let rule = &rules[question.rule];
         match plan.outcomes.get(question) {
             Some(Outcome::Answered { answer, .. }) => {
+                let threshold = rule.threshold(config.min_confidence);
                 let status = match answer.choice {
-                    Choice::Fail if answer.confidence >= rule.threshold(config.min_confidence) => {
-                        Status::Fail
-                    }
+                    Choice::Fail if answer.confidence >= threshold => Status::Fail,
                     Choice::Fail => Status::Uncertain,
                     Choice::Pass | Choice::Skip => continue,
                 };
@@ -306,6 +309,7 @@ pub fn run(workspace: &Workspace, options: &CheckOptions) -> Result<i32> {
                     rule,
                     status,
                     Some(answer.confidence),
+                    Some(threshold),
                     answer.p_fail,
                 ));
             }
@@ -356,6 +360,7 @@ fn finding(
     rule: &Rule,
     status: Status,
     confidence: Option<f64>,
+    min_confidence: Option<f64>,
     p_fail: Option<f64>,
 ) -> Finding {
     Finding {
@@ -368,6 +373,7 @@ fn finding(
         severity: rule.severity,
         status,
         confidence,
+        min_confidence,
         p_fail,
         why: rule.why.clone(),
         fix: rule.fix.clone(),

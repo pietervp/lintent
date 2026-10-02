@@ -196,7 +196,7 @@ mod tests {
         )
         .unwrap();
         let raw = fs::read_to_string(dir.path().join(".lintent/rules/demo.toml")).unwrap();
-        let rule = Rule::parse("demo", raw, &Registry::builtin().names()).unwrap();
+        let rule = Rule::parse("demo", &raw, &Registry::builtin().names()).unwrap();
         assert_eq!(rule.scopes, vec![ScopeKind::Function, ScopeKind::Method]);
         assert_eq!(rule.include, vec!["src/**"]);
         assert!(dir.path().join(".lintent/fixtures/demo/pass").is_dir());

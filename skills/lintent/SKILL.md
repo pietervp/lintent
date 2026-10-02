@@ -40,7 +40,7 @@ no key.
 
 **Every run has a budget.** Before sending anything, lintent estimates the cost
 of all uncached questions. If the estimate is over `[budget] max_cost_usd`
-(default $0.0001, 0.01 US cent), it sends nothing and exits **3**. It then
+(default $0.001, 0.1 US cent), it sends nothing and exits **3**. It then
 prints guidance addressed to you: the rules, files and directories that cost
 the most, the single scopes that cost more than the whole budget, and ways to
 narrow the run. `--dry-run` runs the same check. When you get exit 3, narrow
@@ -208,7 +208,7 @@ lintent scopes --rule <id> >/dev/null  # stderr: "N scope(s) in M file(s) matche
 
 The reach is right when the listed units are the ones the rule is about. It
 must also be affordable. A small scope costs roughly 900–1,200 input tokens,
-about $0.00004, so the default budget covers two or three uncached scopes per
+about $0.00004, so the default budget covers roughly 20–25 uncached scopes per
 run. A rule that reaches 250 scopes can still be correct, but it gets checked
 incrementally: with `--changed`, with explicit PATHS, and from the cache. It
 never gets checked in one sweep. Watch for three failure modes:
@@ -304,7 +304,7 @@ is reported as **unproven** and fails eval. Do not ship it.
 ```bash
 lintent check --rule <id> --dry-run >/dev/null; echo "exit $?"
 # stderr: "dry run: N request(s) for N question(s) on N scope(s) (K cached); nothing sent"
-#         "estimate: ~$… (… input tokens, …) — within budget of $0.0001"   (or OVER budget, exit 3)
+#         "estimate: ~$… (… input tokens, …) — within budget of $0.001"   (or OVER budget, exit 3)
 ```
 
 On **exit 3**, follow the printed guidance instead of raising the budget:
@@ -361,7 +361,7 @@ The rule is done when:
 ## 3. Review or maintain a rule
 
 ```bash
-lintent rules                                     # id, severity, scopes, include
+lintent rules                                     # id, severity, min_confidence, scopes, include
 lintent eval --rule <id>                          # still judged right? (models drift)
 lintent scopes --rule <id> | wc -l                # reach today vs when the rule was written
 lintent check --rule <id> --dry-run >/dev/null    # questions, cache hits, cost estimate; nothing sent
@@ -369,9 +369,10 @@ lintent check --rule <id> --dry-run | head -60    # the exact request bodies
 ```
 
 - **Re-prove first.** Run `eval` before trusting a rule after a model change or
-  a description edit. Any edit to the rule file, even to `why`, invalidates the
-  rule's cached verdicts. The next `check` then re-judges everything the rule
-  reaches.
+  a description edit. Editing `description`, `exceptions` or `allow_skip`
+  invalidates the rule's cached verdicts, so the next `check` re-judges
+  everything the rule reaches. `why`, `fix`, `severity`, `min_confidence` and
+  the globs are never sent, so editing them re-uses the cache.
 - **Tighten the wording,** using the misjudged cases as new fixtures. Every
   false positive you fix becomes a pass fixture, so it stays fixed.
 - **Check the cost.** Questions per run = scopes in reach × rules that match

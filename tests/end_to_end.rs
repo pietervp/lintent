@@ -349,7 +349,7 @@ fn human_output_and_uncertain_fails() {
     assert!(text.contains("src/billing.ts:2  error  rule-a  method Billing.total  (confidence 0.93)\n    why: Because rule-a.\n    fix: Fix rule-a.\n"), "{text}");
     assert!(text.contains("Uncertain (below min_confidence"));
     assert!(
-        text.contains("src/billing.ts:7  error  rule-b  function helper  (confidence 0.40)"),
+        text.contains("src/billing.ts:7  error  rule-b  function helper  (confidence 0.40 < 0.80)"),
         "{text}"
     );
     assert!(
@@ -382,10 +382,41 @@ fn verdicts_are_cached_per_question() {
         .iter()
         .all(|r| question_keys(r) == vec!["rule-b"]));
 
-    project.run(&["check", "--refresh"]);
+    // What the model never sees is applied to cached answers for free.
+    project.rule("rule-a", "severity = \"warning\"\nmin_confidence = 0.95\n");
+    let retuned = json_out(&project.run(&["check", "--json"]));
+    assert_eq!(retuned["stats"]["cache_hits"], 4);
+    assert_eq!(server.requests().len(), 4);
+    // Rewording the rule changes the question, so it is asked again.
+    project.rule("rule-a", "exceptions = [\"Helpers are fine\"]\n");
+    let reworded = json_out(&project.run(&["check", "--json"]));
+    assert_eq!(reworded["stats"]["cache_hits"], 2);
     assert_eq!(server.requests().len(), 6);
-    project.run(&["check", "--no-cache"]);
+
+    project.run(&["check", "--refresh"]);
     assert_eq!(server.requests().len(), 8);
+    project.run(&["check", "--no-cache"]);
+    assert_eq!(server.requests().len(), 10);
+}
+
+#[test]
+fn fail_on_warning_blocks_on_confident_warnings_only() {
+    let server = MockServer::start(answering(json!({
+        "rule-a": {"type": "choice", "choice": "fail", "confidence": 0.93},
+        "rule-b": {"type": "choice", "choice": "fail", "confidence": 0.4}
+    })));
+    let project = Project::with_server(&server, "");
+    project
+        .rule("rule-a", "severity = \"warning\"\n")
+        .rule("rule-b", "")
+        .write("src/billing.ts", TS);
+
+    assert_eq!(project.run(&["check"]).status.code(), Some(0));
+    let strict = project.run(&["check", "--fail-on", "warning"]);
+    assert_eq!(strict.status.code(), Some(1), "{}", stdout(&strict));
+    // rule-b is an uncertain error: it never blocks, whatever --fail-on says.
+    let only_uncertain = project.run(&["check", "--rule", "rule-b", "--fail-on", "warning"]);
+    assert_eq!(only_uncertain.status.code(), Some(0));
 }
 
 #[test]
@@ -504,7 +535,7 @@ fn dry_run_needs_no_key_and_sends_nothing() {
     assert!(text.contains("\"rule-a\": {") && text.contains("\"rule-b\": {"));
     assert!(stderr(&output).contains("dry run: 1 request(s) for 2 question(s)"));
     assert!(
-        stderr(&output).contains("within budget of $0.0001"),
+        stderr(&output).contains("within budget of $0.001"),
         "{}",
         stderr(&output)
     );
@@ -657,6 +688,16 @@ fn init_rule_new_rules_and_scopes() {
     let rules_json: Value =
         serde_json::from_slice(&project.run(&["rules", "--json"]).stdout).unwrap();
     assert_eq!(rules_json[0]["scopes"], json!(["method"]));
+    assert_eq!(
+        rules_json[0]["min_confidence"],
+        json!(0.8),
+        "the project default"
+    );
+    assert!(
+        stdout(&rules).contains(" error    0.80  method"),
+        "{}",
+        stdout(&rules)
+    );
 
     let all = stdout(&project.run(&["scopes", "--verbose"]));
     assert!(all.contains("src/billing.ts:1  class    Billing"), "{all}");
@@ -846,7 +887,7 @@ fn many_functions(count: usize) -> String {
 #[test]
 fn over_budget_sends_nothing_and_tells_the_agent_how_to_narrow() {
     let server = MockServer::start(answering(json!({})));
-    let project = Project::with_server(&server, "");
+    let project = Project::with_server(&server, "[budget]\nmax_cost_usd = 0.0001\n");
     project
         .rule("rule-a", "scopes = [\"function\"]")
         .write("src/a/many.ts", &many_functions(12));
@@ -903,7 +944,7 @@ fn over_budget_sends_nothing_and_tells_the_agent_how_to_narrow() {
 #[test]
 fn cached_questions_cost_nothing_against_the_budget() {
     let server = MockServer::start(answering(json!({})));
-    let project = Project::with_server(&server, "");
+    let project = Project::with_server(&server, "[budget]\nmax_cost_usd = 0.0001\n");
     project
         .rule("rule-a", "scopes = [\"function\"]")
         .write("src/many.ts", &many_functions(12));
@@ -913,7 +954,7 @@ fn cached_questions_cost_nothing_against_the_budget() {
     );
     assert_eq!(server.requests().len(), 12);
 
-    // Everything is cached now: the default budget is no obstacle.
+    // Everything is cached now: the budget is no obstacle.
     let output = project.run(&["check", "--json"]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let json = json_out(&output);
@@ -943,7 +984,7 @@ fn budget_is_configurable_in_the_config() {
 #[test]
 fn eval_is_budgeted_too() {
     let server = MockServer::start(answering(json!({})));
-    let project = Project::with_server(&server, "");
+    let project = Project::with_server(&server, "[budget]\nmax_cost_usd = 0.0001\n");
     project
         .rule("rule-a", "scopes = [\"function\"]")
         .write(".lintent/fixtures/rule-a/fail/many.ts", &many_functions(12));

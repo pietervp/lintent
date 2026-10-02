@@ -11,6 +11,7 @@ use crate::languages::Registry;
 use crate::workspace::Workspace;
 
 pub fn rules(workspace: &Workspace, as_json: bool) -> String {
+    let default_threshold = workspace.project.config.min_confidence;
     if as_json {
         let rules: Vec<_> = workspace
             .rules
@@ -19,6 +20,7 @@ pub fn rules(workspace: &Workspace, as_json: bool) -> String {
                 json!({
                     "id": rule.id,
                     "severity": rule.severity,
+                    "min_confidence": rule.threshold(default_threshold),
                     "scopes": rule.scopes,
                     "languages": rule.languages,
                     "include": rule.include,
@@ -39,9 +41,10 @@ pub fn rules(workspace: &Workspace, as_json: bool) -> String {
         let scopes: Vec<String> = rule.scopes.iter().map(|scope| scope.to_string()).collect();
         let _ = writeln!(
             out,
-            "{:<32} {:<8} {:<24} {}",
+            "{:<32} {:<8} {:<5} {:<24} {}",
             rule.id,
             rule.severity,
+            format!("{:.2}", rule.threshold(default_threshold)),
             scopes.join(","),
             rule.include.join(" ")
         );
