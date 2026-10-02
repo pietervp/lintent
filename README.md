@@ -70,8 +70,30 @@ the version is pinned in your lockfile like any other linter:
 
 ```bash
 npm install --save-dev @lintent/cli     # or pnpm add -D, yarn add -D, bun add -d
-npx lintent --help
 ```
+
+Run it through your `package.json` scripts, which only ever use the
+project's own `node_modules/.bin`:
+
+```json
+{
+  "scripts": {
+    "lintent": "lintent",
+    "lint:intent": "lintent check --changed"
+  }
+}
+```
+
+```bash
+npm run lint:intent
+npm run lintent -- scopes --rule handlers-stay-thin
+```
+
+`pnpm exec lintent` and `yarn lintent` are safe too. **Avoid `npx lintent`**:
+the npm package named `lintent` is an unrelated tool, and whenever
+`@lintent/cli` is missing from the project (wrong directory, install not yet
+run), npx downloads and runs that package instead. `npx --no` does not
+protect you either; it still runs a copy npx cached earlier.
 
 The package carries prebuilt binaries for macOS (arm64, x64), Linux (arm64,
 x64, glibc) and Windows (x64), and installs only the one for your machine.

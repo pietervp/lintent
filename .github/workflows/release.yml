@@ -120,13 +120,28 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
-          # Platform packages first, so @lintent/cli never points at a missing version.
-          for dir in npm-dist/cli-*/ npm-dist/cli/; do
-            name=$(node -p "require('./$dir/package.json').name")
-            version=$(node -p "require('./$dir/package.json').version")
+          publish() {
+            local name version
+            name=$(node -p "require('./$1/package.json').name")
+            version=$(node -p "require('./$1/package.json').version")
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already published"
-              continue
+            else
+              (cd "$1" && npm publish --access public)
             fi
-            (cd "$dir" && npm publish --access public)
+          }
+          for dir in npm-dist/cli-*/; do publish "$dir"; done
+          # npm validates a new version before serving it, and an install
+          # silently skips an optional dependency it cannot find. So
+          # @lintent/cli goes out only once every platform package is served.
+          for dir in npm-dist/cli-*/; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            for attempt in $(seq 1 120); do
+              npm view "$name@$version" version >/dev/null 2>&1 && break
+              [ "$attempt" = 120 ] && { echo "$name@$version is still not served after 30 minutes"; exit 1; }
+              sleep 15
+            done
+            echo "$name@$version is served"
           done
+          publish npm-dist/cli/

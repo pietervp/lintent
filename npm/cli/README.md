@@ -5,9 +5,26 @@ written in plain language, judged by a model and scoped with tree-sitter.
 
 ```bash
 npm install --save-dev @lintent/cli
-npx lintent init
-npx lintent check --changed
 ```
+
+Run it through `package.json` scripts (or `pnpm exec lintent`, `yarn lintent`):
+
+```json
+{
+  "scripts": {
+    "lintent": "lintent",
+    "lint:intent": "lintent check --changed"
+  }
+}
+```
+
+```bash
+npm run lintent -- init
+npm run lint:intent
+```
+
+Avoid `npx lintent`: the npm package named `lintent` is an unrelated tool, and
+when `@lintent/cli` is not installed in the project, npx runs that one instead.
 
 This package holds a small launcher; the binary comes from the one
 `@lintent/cli-<platform>` optional dependency that matches your machine
