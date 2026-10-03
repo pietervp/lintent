@@ -1,6 +1,6 @@
 [package]
 name = "lintent"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Plain-language lint rules judged by a model (Jev, by TypeSafe), scoped with tree-sitter"
 license = "MIT"
