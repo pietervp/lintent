@@ -236,12 +236,30 @@ question_overhead_tokens = 80      # added per question
 | `min_confidence` | A `fail` below this confidence is reported as **uncertain** and never blocks. Default `0.8` |
 | `concurrency` | Number of parallel requests. Default `4` |
 | `isolate_rules` | `true` sends one request per (scope, rule) instead of one per scope; see [How questions are asked](#how-questions-are-asked) |
-| `exclude` | Globs that no rule ever sees, on top of `.gitignore`. Setting it replaces the default list above, so keep `.lintent/fixtures/**` in it |
+| `exclude` | Globs that no rule ever sees, on top of `.gitignore` and `.lintentignore`. Setting it replaces the default list above, so keep `.lintent/fixtures/**` in it |
 | `[budget]` | `max_cost_usd`, the per-million prices, and the two overhead token counts the estimate uses. All must be non-negative. Update the prices when you change `model`. See [Budget](#budget) |
 | `[languages.<name>]` | Adds a grammar or adjusts a built-in; see [Languages](#languages) |
 
 Hidden files and directories are linted too (`.github/scripts`, dotfile
-configs); `.gitignore` and `exclude` still apply, and `.git/` is never entered.
+configs); `.gitignore`, `.lintentignore` and `exclude` still apply, and `.git/`
+is never entered.
+
+### `.lintentignore`
+
+Paths lintent should never look at, in `.gitignore` syntax. Like `.gitignore`,
+the file may sit in any directory and its patterns are relative to it:
+
+```gitignore
+# .lintentignore
+generated/
+legacy/**/*.ts
+*.snap.ts
+```
+
+It takes precedence over `.gitignore`, so a `!pattern` here can bring a
+gitignored file back into view. Use it for paths you would rather list next to
+the code than in `lintent.toml`; unlike `exclude`, it does not replace the
+default list.
 
 ## Rule files: `.lintent/rules/<id>.toml`
 

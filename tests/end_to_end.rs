@@ -1068,6 +1068,23 @@ fn explicit_paths_inside_excludes_get_a_note() {
 }
 
 #[test]
+fn lintentignore_files_hide_paths_like_gitignore() {
+    let project = Project::new("");
+    project
+        .rule("rule-a", "")
+        .write(".lintentignore", "generated/\n*.snap.ts\n")
+        .write("src/.lintentignore", "legacy.ts\n")
+        .write("generated/api.ts", "export function g() {}\n")
+        .write("src/view.snap.ts", "export function s() {}\n")
+        .write("src/legacy.ts", "export function l() {}\n")
+        .write("src/kept.ts", "export function k() {}\n");
+    let all = stdout(&project.run(&["scopes"]));
+    assert_eq!(all, "src/kept.ts:1  function k\n");
+    let explicit = stdout(&project.run(&["scopes", "src"]));
+    assert_eq!(explicit, "src/kept.ts:1  function k\n");
+}
+
+#[test]
 fn eval_flags_vacuous_pass_fixtures() {
     let server = MockServer::start(answering(json!({
         "rule-a": {"type": "choice", "choice": "fail", "confidence": 0.99}

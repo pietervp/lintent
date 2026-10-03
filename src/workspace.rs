@@ -14,6 +14,10 @@ use crate::keep::Keeps;
 use crate::languages::Registry;
 use crate::rules::{build_globset, load_rules, Rule};
 
+/// Gitignore-syntax files listing paths lintent never looks at, read in
+/// every directory like `.gitignore`.
+pub const IGNORE_FILE: &str = ".lintentignore";
+
 pub struct Workspace {
     pub project: Project,
     pub env: Env,
@@ -100,7 +104,8 @@ impl Workspace {
     }
 
     /// Walks `paths` (relative to the working directory; default the
-    /// project root), honouring `.gitignore` and the config's `exclude`.
+    /// project root), honouring `.gitignore`, `.lintentignore` and the
+    /// config's `exclude`.
     /// With `only`, keeps just those repo-relative paths.
     pub fn discover(
         &self,
@@ -132,9 +137,11 @@ impl Workspace {
                 );
             }
             // Hidden files are linted too (`.github/scripts`, dotfile configs);
-            // `.gitignore` and `exclude` still apply, and `.git/` is never entered.
+            // `.gitignore`, `.lintentignore` and `exclude` still apply, and
+            // `.git/` is never entered.
             let walker = WalkBuilder::new(&target)
                 .require_git(false)
+                .add_custom_ignore_filename(IGNORE_FILE)
                 .hidden(false)
                 .filter_entry(|entry| entry.file_name() != ".git")
                 .sort_by_file_name(|a, b| a.cmp(b))
