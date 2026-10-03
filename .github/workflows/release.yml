@@ -27,7 +27,7 @@ jobs:
           - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04 }
           - { target: x86_64-pc-windows-msvc, runner: windows-latest, exe: .exe }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -50,7 +50,7 @@ jobs:
           else
             tar -C staging -czf "dist/$name.tar.gz" "$name"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bin-${{ matrix.target }}
           path: dist/
@@ -62,8 +62,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: bin-*
           path: artifacts
@@ -90,13 +90,15 @@ jobs:
       # of a stored npm token, and adds provenance on its own.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          # No cache in a job that publishes: a poisoned one would ship.
+          package-manager-cache: false
       # Trusted publishing needs npm 11.5.1 or later.
       - run: npm install -g npm@latest
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bin-*
           path: artifacts
@@ -153,11 +155,11 @@ jobs:
       contents: read
       id-token: write # nuget.org trusted publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bin-*
           path: artifacts
@@ -214,7 +216,7 @@ jobs:
       contents: read
       id-token: write # crates.io trusted publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: check whether this version is on crates.io
         id: check
@@ -237,8 +239,8 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: pietervp/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
