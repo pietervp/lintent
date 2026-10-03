@@ -50,7 +50,9 @@ pub fn collect(workspace: &Workspace, rules: &[Rule], options: &CheckOptions) ->
         None
     };
     let discovery = workspace.discover(&options.paths, changed.as_ref())?;
-    note_excluded(&options.paths, discovery.excluded);
+    for note in discovery.skipped_notes(&options.paths) {
+        eprintln!("{note}");
+    }
 
     let mut collected = Collected {
         units: Vec::new(),
@@ -349,12 +351,6 @@ fn emit(report: &Report, json: bool) {
 
 /// Explicit paths that land in an `exclude` glob would otherwise look like
 /// "nothing to lint" with no explanation.
-pub fn note_excluded(paths: &[PathBuf], excluded: usize) {
-    if !paths.is_empty() && excluded > 0 {
-        eprintln!("note: {excluded} file(s) under the given paths are excluded by `exclude` in lintent.toml");
-    }
-}
-
 fn finding(
     unit: &Unit,
     rule: &Rule,

@@ -1080,8 +1080,14 @@ fn lintentignore_files_hide_paths_like_gitignore() {
         .write("src/kept.ts", "export function k() {}\n");
     let all = stdout(&project.run(&["scopes"]));
     assert_eq!(all, "src/kept.ts:1  function k\n");
-    let explicit = stdout(&project.run(&["scopes", "src"]));
-    assert_eq!(explicit, "src/kept.ts:1  function k\n");
+    assert!(!stderr(&project.run(&["scopes"])).contains("note:"));
+    let explicit = project.run(&["scopes", "src"]);
+    assert_eq!(stdout(&explicit), "src/kept.ts:1  function k\n");
+    assert!(
+        stderr(&explicit).contains("2 file(s) under the given paths are ignored by .lintentignore"),
+        "{}",
+        stderr(&explicit)
+    );
 }
 
 #[test]

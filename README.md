@@ -259,7 +259,8 @@ legacy/**/*.ts
 It takes precedence over `.gitignore`, so a `!pattern` here can bring a
 gitignored file back into view. Use it for paths you would rather list next to
 the code than in `lintent.toml`; unlike `exclude`, it does not replace the
-default list.
+default list. When you pass paths explicitly, `check` and `scopes` print a note
+counting the files under them that `.lintentignore` or `exclude` skipped.
 
 ## Rule files: `.lintent/rules/<id>.toml`
 

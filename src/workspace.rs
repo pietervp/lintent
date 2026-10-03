@@ -44,6 +44,32 @@ pub struct Discovery {
     pub unsupported: Vec<String>,
     /// Files skipped by the config's `exclude` globs.
     pub excluded: usize,
+    /// Files hidden by `.lintentignore`; counted only for explicit paths.
+    pub ignored: usize,
+}
+
+impl Discovery {
+    /// Notes for explicit paths that reach files lintent then skips, so a
+    /// `check some/dir` that judges nothing says why.
+    pub fn skipped_notes(&self, paths: &[PathBuf]) -> Vec<String> {
+        let mut notes = Vec::new();
+        if paths.is_empty() {
+            return notes;
+        }
+        if self.excluded > 0 {
+            notes.push(format!(
+                "note: {} file(s) under the given paths are excluded by `exclude` in lintent.toml",
+                self.excluded
+            ));
+        }
+        if self.ignored > 0 {
+            notes.push(format!(
+                "note: {} file(s) under the given paths are ignored by {IGNORE_FILE}",
+                self.ignored
+            ));
+        }
+        notes
+    }
 }
 
 impl Workspace {
@@ -128,7 +154,7 @@ impl Workspace {
 
         let mut seen = BTreeSet::new();
         let mut discovery = Discovery::default();
-        for target in targets {
+        for target in &targets {
             if !target.starts_with(&self.project.root) {
                 bail!(
                     "{} is outside the project root {}",
@@ -136,46 +162,76 @@ impl Workspace {
                     self.project.root.display()
                 );
             }
-            // Hidden files are linted too (`.github/scripts`, dotfile configs);
-            // `.gitignore`, `.lintentignore` and `exclude` still apply, and
-            // `.git/` is never entered.
-            let walker = WalkBuilder::new(&target)
-                .require_git(false)
-                .add_custom_ignore_filename(IGNORE_FILE)
-                .hidden(false)
-                .filter_entry(|entry| entry.file_name() != ".git")
-                .sort_by_file_name(|a, b| a.cmp(b))
-                .build();
-            for entry in walker {
-                let entry = entry.context("walking the project")?;
-                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                    continue;
-                }
-                let Some(path) = self.relative(entry.path()) else {
-                    continue;
-                };
-                if only.is_some_and(|only| !only.contains(&path)) {
+            for (path, absolute) in self.walk(target, true, only)? {
+                if !seen.insert(path.clone()) {
                     continue;
                 }
                 if self.exclude.is_match(&path) {
                     discovery.excluded += 1;
                     continue;
                 }
-                if !seen.insert(path.clone()) {
-                    continue;
-                }
-                match self.registry.for_path(entry.path()) {
+                match self.registry.for_path(&absolute) {
                     Some(spec) => discovery.files.push(SourceFile {
                         path,
-                        absolute: entry.path().to_path_buf(),
+                        absolute,
                         language: spec.name.clone(),
                     }),
                     None => discovery.unsupported.push(path),
                 }
             }
         }
+        // Only explicit paths get the note, so only they pay for the second
+        // walk: whatever it finds that the first did not, `.lintentignore` hid
+        // (a `!pattern` there can also reveal files; those are not counted).
+        if !paths.is_empty() {
+            let mut hidden = BTreeSet::new();
+            for target in &targets {
+                for (path, _) in self.walk(target, false, only)? {
+                    if !seen.contains(&path) && !self.exclude.is_match(&path) {
+                        hidden.insert(path);
+                    }
+                }
+            }
+            discovery.ignored = hidden.len();
+        }
         discovery.files.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(discovery)
+    }
+
+    /// The files under `target` as (repo-relative, absolute) paths, honouring
+    /// `.gitignore` and, with `lintentignore`, `.lintentignore`.
+    fn walk(
+        &self,
+        target: &Path,
+        lintentignore: bool,
+        only: Option<&BTreeSet<String>>,
+    ) -> Result<Vec<(String, PathBuf)>> {
+        // Hidden files are linted too (`.github/scripts`, dotfile configs);
+        // the ignore files still apply, and `.git/` is never entered.
+        let mut builder = WalkBuilder::new(target);
+        builder
+            .require_git(false)
+            .hidden(false)
+            .filter_entry(|entry| entry.file_name() != ".git")
+            .sort_by_file_name(|a, b| a.cmp(b));
+        if lintentignore {
+            builder.add_custom_ignore_filename(IGNORE_FILE);
+        }
+        let mut files = Vec::new();
+        for entry in builder.build() {
+            let entry = entry.context("walking the project")?;
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                continue;
+            }
+            let Some(path) = self.relative(entry.path()) else {
+                continue;
+            };
+            if only.is_some_and(|only| !only.contains(&path)) {
+                continue;
+            }
+            files.push((path, entry.into_path()));
+        }
+        Ok(files)
     }
 
     /// Reads and parses one file and binds its keep marks. `Ok(None)` for a

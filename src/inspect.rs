@@ -125,12 +125,8 @@ pub fn scopes(
         .map(|rule| format!(" matched by {}", rule.id))
         .unwrap_or_default();
     let mut summary = format!("{count} scope(s) in {files} file(s){target}\n");
-    if !paths.is_empty() && discovery.excluded > 0 {
-        let _ = writeln!(
-            summary,
-            "note: {} file(s) under the given paths are excluded by `exclude` in lintent.toml",
-            discovery.excluded
-        );
+    for note in discovery.skipped_notes(paths) {
+        let _ = writeln!(summary, "{note}");
     }
     Ok((out, summary))
 }
